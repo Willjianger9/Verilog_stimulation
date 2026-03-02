@@ -71,16 +71,18 @@ module FPCVT(
         3'b000;                      // No 1 at bits 11-4 (>=8 leading zeros) -> exp=0
 
     // Extract significand (4 bits) and rounding bit (5th bit)
-    // Significand = 4 bits immediately after the leading 1
+    // Significand = 4 bits immediately after (and including) the leading 1
     // Rounding bit = 5th bit after the leading 1
+    // Must check actual bit positions, not just exp_raw, since both bit[11] and bit[10] map to exp=7
     assign sig_with_round_bit = 
-        (exp_raw == 3'b111) ? magnitude[10:6] :     // Leading 1 at [11]: sig at [10:7], round at [6]
-        (exp_raw == 3'b110) ? magnitude[9:5] :      // Leading 1 at [10]: sig at [9:6], round at [5]
-        (exp_raw == 3'b101) ? magnitude[8:4] :      // Leading 1 at [9]: sig at [8:5], round at [4]
-        (exp_raw == 3'b100) ? magnitude[7:3] :      // Leading 1 at [8]: sig at [7:4], round at [3]
-        (exp_raw == 3'b011) ? magnitude[6:2] :      // Leading 1 at [7]: sig at [6:3], round at [2]
-        (exp_raw == 3'b010) ? magnitude[5:1] :      // Leading 1 at [6]: sig at [5:2], round at [1]
-        (exp_raw == 3'b001) ? magnitude[4:0] :      // Leading 1 at [5]: sig at [4:1], round at [0]
+        (magnitude[11]) ? magnitude[11:7] :      // Leading 1 at [11]: sig at [11:8], round at [7]
+        (magnitude[10]) ? magnitude[10:6] :      // Leading 1 at [10]: sig at [10:7], round at [6]
+        (magnitude[9])  ? magnitude[9:5] :       // Leading 1 at [9]: sig at [9:6], round at [5]
+        (magnitude[8])  ? magnitude[8:4] :       // Leading 1 at [8]: sig at [8:5], round at [4]
+        (magnitude[7])  ? magnitude[7:3] :       // Leading 1 at [7]: sig at [7:4], round at [3]
+        (magnitude[6])  ? magnitude[6:2] :       // Leading 1 at [6]: sig at [6:3], round at [2]
+        (magnitude[5])  ? magnitude[5:1] :       // Leading 1 at [5]: sig at [5:2], round at [1]
+        (magnitude[4])  ? magnitude[4:0] :       // Leading 1 at [4]: sig at [4:1], round at [0]
         {1'b0, magnitude[3:0]};  // exp=0: sig at [3:0], no rounding bit
 
     //=========================================================================
@@ -106,8 +108,14 @@ module FPCVT(
     wire overflow = (sig_rounded_temp == 5'b10000);
     
     // If overflow, shift right and increment exponent
-    assign sig_final = overflow ? 4'b1000 : sig_rounded_temp[3:0];
-    assign exp_final = overflow ? (exp_raw + 1) : exp_raw;
+    // Handle exponent overflow: if exp_raw is already 7, clamp to max (E=7, F=15)
+    wire [3:0] exp_temp = exp_raw + 1;
+    wire exp_overflow = overflow && (exp_raw == 3'b111);
+    
+    assign sig_final = exp_overflow ? 4'b1111 :           // Clamp to max significand if exp overflows
+                       overflow ? 4'b1000 :               // Shift right if normal overflow
+                       sig_rounded_temp[3:0];             // No overflow
+    assign exp_final = (overflow && !exp_overflow) ? exp_temp[2:0] : exp_raw;
     
     // Final outputs
     assign E = exp_final;
